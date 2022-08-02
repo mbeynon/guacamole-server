@@ -22,6 +22,9 @@
 #include "client.h"
 #include "user.h"
 #include "vnc.h"
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+#include "log.h"
+#endif
 
 #ifdef ENABLE_COMMON_SSH
 #include "common-ssh/sftp.h"
@@ -31,6 +34,10 @@
 
 #ifdef ENABLE_PULSE
 #include "pulse/pulse.h"
+#endif
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+#include <curl/curl.h>
 #endif
 
 #include <guacamole/client.h>
@@ -48,6 +55,18 @@ int guac_client_init(guac_client* client) {
     /* Alloc client data */
     guac_vnc_client* vnc_client = calloc(1, sizeof(guac_vnc_client));
     client->data = vnc_client;
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    guac_client_log(client, GUAC_LOG_DEBUG, "guac_client_init(): entry");
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    guac_client_log(client, GUAC_LOG_INFO, "curl_version=%s", curl_version());
+
+    /* Init thread state signal and lock */
+    vnc_client->state = GUAC_VNC_VMCONSOLE_INIT;
+    pthread_cond_init(&vnc_client->state_modified, NULL);
+    pthread_mutex_init(&vnc_client->state_lock, NULL);
+#endif
 
 #ifdef ENABLE_VNC_TLS_LOCKING
     /* Initialize the TLS write lock */
@@ -140,6 +159,23 @@ int guac_vnc_client_free_handler(guac_client* client) {
     /* If audio enabled, stop streaming */
     if (vnc_client->audio)
         guac_pa_stream_free(vnc_client->audio);
+#endif
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    /* libcurl clean up */
+    curl_global_cleanup();
+
+    /* vm server state */
+    if (vnc_client->vm_server_url != NULL)
+        free(vnc_client->vm_server_url);
+    if (vnc_client->unix_sock_path != NULL) {
+        unlink(vnc_client->unix_sock_path);
+        free(vnc_client->unix_sock_path);
+    }
+    // TODO: close fd
+    pthread_join(vnc_client->ws_thread, NULL);
+
+    pthread_mutex_destroy(&(vnc_client->state_lock));
 #endif
 
     /* Free parsed settings */

@@ -35,6 +35,7 @@ autom4te.cache/
 build-aux/
 libtool
 m4/*
+!m4/libcurl.m4
 !README
 config.h
 config.h.in

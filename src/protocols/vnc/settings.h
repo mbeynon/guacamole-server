@@ -45,6 +45,47 @@ typedef struct guac_vnc_settings {
      */
     int port;
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    /**
+     * Whether or not to use VNC over a websocket connection with a different
+     * auth model to access VM consoles.  By default this is false.  If this
+     * option is enabled, it will use hostname, port, username and password to
+     * use the VMware automation API to authenticate and generate the dynamic
+     * ticket to access a VM console.
+     */
+    bool vm_console;
+
+   /**
+     * Specifies version of VM Server API to use.  The semantics are the same,
+     * but the REST paths and return json wrapping is different.
+     * 
+     * "v1" = works in vsphere automation API v6.5 to v7.0U2-deprecated
+     * "v2" = works in vsphere automation API v7.0U3 or later
+     */
+    char *vm_api_version;
+
+    /**
+     * The VM managed object ID of the VM console to open.
+     */
+    char* vm_id;
+
+    /**
+     * Authenticated single use URL to VNC over websockets server.  If this is
+     * specified, the VM Server API is not used to get a new console URL, which
+     * also means you don't need the service account creds to be filled in and
+     * the vm-id is not needed.  This should be dynamically generated and not be
+     * stored in the guacamole-server db.
+     */
+    char *vm_server_console_url;
+
+    /**
+     * Disable secure comms for VM Server REST calls and wss:// calls to VM
+     * Server for console.  Will allow self-signed certs, not verify peer or
+     * hosts, etc.  Only use in an internal test lab environemnt.
+     */
+    bool vm_allow_insecure_tls;
+#endif
+
     /**
      * The username given in the arguments.
      */

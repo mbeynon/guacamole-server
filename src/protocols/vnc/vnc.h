@@ -46,6 +46,26 @@
 
 #include <pthread.h>
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+/**
+ * Current state of connection between VNC client thread and WS worker thread
+ */
+typedef enum guac_vnc_vmconsole_state {
+    GUAC_VNC_VMCONSOLE_INIT,
+
+    /**
+     * Waiting for WS thread to listen for the VNC thread connection
+     */
+    GUAC_VNC_VMCONSOLE_WAIT_FOR_CONNECT,
+
+    /**
+     * The WS thread is listening
+     */
+    GUAC_VNC_VMCONSOLE_READY_FOR_CONNECT,
+
+} guac_vnc_vmconsole_state_t;
+#endif
+
 /**
  * VNC-specific client data.
  */
@@ -134,6 +154,46 @@ typedef struct guac_vnc_client {
      * Clipboard encoding-specific writer.
      */
     guac_iconv_write* clipboard_writer;
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    /**
+     * authenticated single use URL to VNC over websockets server
+     */
+    char* vm_server_url;
+
+    /**
+     * file path for unix domain socket between vncclient and ws_thread
+     */
+    char* unix_sock_path;
+
+    /**
+     * server side file descriptor for unix domain socket between vncclient and
+     * ws_thread
+     */
+    int fd_unix_sock;
+
+    /**
+     * The current state of the vm console thread synchronization.
+     */
+    guac_vnc_vmconsole_state_t state;
+
+    /**
+     * Lock which is acquired prior to modifying the state property or waiting
+     * on the state_modified conditional.
+     */
+    pthread_mutex_t state_lock;
+
+    /**
+     * Conditional which signals modification to the state property of this
+     * structure.
+     */
+    pthread_cond_t state_modified;
+
+    /**
+     * Thread which transfers data from the remote WebSocket wrapped VNC server.
+     */
+    pthread_t ws_thread;
+#endif
 
 } guac_vnc_client;
 

@@ -82,3 +82,9 @@ if ENABLE_PULSE
 libguac_client_vnc_la_LIBADD += @PULSE_LTLIB@
 endif
 
+# Optional VM Console support
+if ENABLE_VM_CONSOLE
+libguac_client_vnc_la_SOURCES += vmconsole.c
+noinst_HEADERS                += vmconsole.h
+libguac_client_vnc_la_LDFLAGS += @VNCVMCONSOLE_LIBS@ @WEBSOCKETS_LIBS@
+endif

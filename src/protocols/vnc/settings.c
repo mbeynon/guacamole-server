@@ -36,6 +36,13 @@
 const char* GUAC_VNC_CLIENT_ARGS[] = {
     "hostname",
     "port",
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    "vm-console",
+    "vm-api-version",
+    "vm-id",
+    "vm-server-console-url",
+    "vm-allow-insecure-tls",
+#endif
     "read-only",
     "encodings",
     GUAC_VNC_ARGV_USERNAME,
@@ -107,6 +114,47 @@ enum VNC_ARGS_IDX {
      * The port of the VNC server (or repeater) to connect to.
      */
     IDX_PORT,
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    /**
+     * Whether or not to use VNC over a websocket connection with a different
+     * auth model to access VM consoles.  By default this is false.  If this
+     * option is enabled, it will use hostname, port, username and password to
+     * use the VMware automation API to authenticate and generate the dynamic
+     * ticket to access a VM console.
+     */
+    IDX_VM_CONSOLE,
+
+    /**
+     * Specifies version of VM Server API to use.  The semantics are the same,
+     * but the REST paths and return json wrapping is different.
+     * 
+     * v1 = works in vsphere automation API v6.5 to v7.0U2-deprecated
+     * v2 = works in vsphere automation API v7.0U3 or later
+     */
+    IDX_VM_API_VERSION,
+
+    /**
+     * The VM managed object ID of the VM console to open.
+     */
+    IDX_VM_ID,
+
+    /**
+     * Authenticated single use URL to VNC over websockets server.  If this is
+     * specified, the VM Server API is not used to get a new console URL, which
+     * also means you don't need the service account creds to be filled in and
+     * the vm-id is not needed.  This should be dynamically generated and not be
+     * stored in the guacamole-server db.
+     */
+    IDX_VM_SERVER_CONSOLE_URL,
+
+   /**
+     * Disable secure comms for VM Server REST calls and wss:// calls to VM
+     * Server for console.  Will allow self-signed certs, not verify peer or
+     * hosts, etc.  Only use in an internal test lab environemnt.
+     */
+    IDX_VM_ALLOW_INSECURE_TLS,
+#endif
 
     /**
      * "true" if this connection should be read-only (user input should be
@@ -405,6 +453,46 @@ guac_vnc_settings* guac_vnc_parse_args(guac_user* user,
         guac_user_parse_args_int(user, GUAC_VNC_CLIENT_ARGS, argv,
                 IDX_PORT, 0);
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    /* Parse VNC over websockets settings */
+    settings->vm_console =
+        guac_user_parse_args_boolean(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_VM_CONSOLE, false);
+
+    if (settings->vm_console) {                
+        /* Parse the API version */
+        settings->vm_api_version =
+            guac_user_parse_args_string(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_VM_API_VERSION, "v1");
+
+        /* Parse the VM id. */
+        settings->vm_id =
+            guac_user_parse_args_string(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_VM_ID, "");
+
+        /* Parse the Server Console URL */
+        settings->vm_server_console_url =
+            guac_user_parse_args_string(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_VM_SERVER_CONSOLE_URL, "");
+
+        /* Parse the insecure TLS flag */
+        settings->vm_allow_insecure_tls =
+            guac_user_parse_args_boolean(user, GUAC_VNC_CLIENT_ARGS, argv,
+                IDX_VM_ALLOW_INSECURE_TLS, false);
+
+        /* validate proper usage */
+        if (strlen(settings->vm_server_console_url) == 0) {
+            /* If VNC over websockets has been enabled but no VM id provided, log warning and disable. */
+            if (strlen(settings->vm_id) == 0) {
+                guac_user_log(user, GUAC_LOG_WARNING, "VM VNC over websockets was requested, ",
+                        "but no VM id was specified.  Disabling VM VNC over websockets.");
+                settings->vm_console = false;
+            }
+            /* Will use a username and password if provided, otherwise prompt the user for creds */
+        }
+    }
+#endif
+
     settings->username =
         guac_user_parse_args_string(user, GUAC_VNC_CLIENT_ARGS, argv,
                 IDX_USERNAME, NULL);
@@ -680,6 +768,12 @@ void guac_vnc_settings_free(guac_vnc_settings* settings) {
     /* Free Wake-on-LAN strings */
     free(settings->wol_mac_addr);
     free(settings->wol_broadcast_addr);
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    free(settings->vm_api_version);
+    free(settings->vm_id);
+    free(settings->vm_server_console_url);
+#endif
 
     /* Free settings structure */
     free(settings);

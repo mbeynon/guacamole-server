@@ -31,6 +31,10 @@
 #include "settings.h"
 #include "vnc.h"
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+#include "vmconsole.h"
+#endif
+
 #ifdef ENABLE_PULSE
 #include "pulse/pulse.h"
 #endif
@@ -201,9 +205,60 @@ rfbClient* guac_vnc_get_client(guac_client* client) {
     rfb_client->MallocFrameBuffer = guac_vnc_malloc_framebuffer;
     rfb_client->canHandleNewFBSize = 1;
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    if (vnc_settings->vm_console) {
+
+        /* Setup what libvncclient expects for a unix domain socket */
+        int sock_fd;
+        struct sockaddr_un addr;
+        sock_fd = socket(PF_UNIX, SOCK_STREAM, 0);
+        if(sock_fd < 0) {
+            guac_client_log(client, GUAC_LOG_ERROR,
+                "Error creating internal unix domain socket: %s", strerror(errno));
+            return NULL;
+        } 
+        if (vm_console_get_unix_path(&addr) != 0) {
+            guac_client_log(client, GUAC_LOG_ERROR,
+                "Error creating internal unix domain socket path \"%s\": (%d) %s",
+                addr.sun_path, errno, strerror(errno));
+            return NULL;
+        }
+        int ret = unlink(addr.sun_path);
+        if (ret != 0 && errno != ENOENT) {
+            guac_client_log(client, GUAC_LOG_INFO,
+                "Error pre-deleting new unix domain socket path \"%s\": (%d) %s",
+                addr.sun_path, errno, strerror(errno));
+            return NULL;
+        }
+
+        /* this creates the sock file */
+        if (bind(sock_fd, (struct sockaddr *) &addr, sizeof(struct sockaddr_un)) != 0) {
+            guac_client_log(client, GUAC_LOG_ERROR,
+                "Error binding internal unix domain socket with path: \"%s\"", addr.sun_path);
+            return NULL;
+        }
+        vnc_client->fd_unix_sock = sock_fd;
+        vnc_client->unix_sock_path = strdup(addr.sun_path);
+
+        rfb_client->serverHost = strdup(addr.sun_path);
+        rfb_client->serverPort = 0;
+
+        /* Start ws_thread and wait until it's ready for the connection */
+        guac_client_log(client, GUAC_LOG_DEBUG, "create ws_thread and wait for ready of %s", rfb_client->serverHost);
+
+        pthread_create(&(vnc_client->ws_thread), NULL, guac_vnc_vmconsole_ws_thread, client);
+        guac_vnc_wsthread_state_wait_for_ready(vnc_client);
+
+    } else {
+        /* Set hostname and port */
+        rfb_client->serverHost = strdup(vnc_settings->hostname);
+        rfb_client->serverPort = vnc_settings->port;
+    }
+#else
     /* Set hostname and port */
     rfb_client->serverHost = strdup(vnc_settings->hostname);
     rfb_client->serverPort = vnc_settings->port;
+#endif
 
 #ifdef ENABLE_VNC_REPEATER
     /* Set repeater parameters if specified */
@@ -272,6 +327,73 @@ void* guac_vnc_client_thread(void* data) {
     guac_vnc_client* vnc_client = (guac_vnc_client*) client->data;
     guac_vnc_settings* settings = vnc_client->settings;
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+
+    /*
+     * v1 = works in vsphere automation API v6.5 to v7.0U2-deprecated
+     * v2 = works in vsphere automation API v7.0U3 or later
+     */
+    int vm_server_version = 1;
+    if (strcmp(settings->vm_api_version, "v2") == 0) {
+        vm_server_version = 2;
+    }
+    
+    if (settings->vm_console) {
+        if (strlen(settings->vm_server_console_url) > 0) {
+
+            /* just use what was passed in, skipping all the REST calls the the VM server to get a ticket */
+            vnc_client->vm_server_url = strdup(settings->vm_server_console_url);  // for later use and cleanup
+
+        } else {
+            CURL *curl = curl_easy_init();
+            if (!curl) {
+                guac_client_abort(client, GUAC_PROTOCOL_STATUS_SERVER_ERROR,
+                    "Unable to initialize libcurl to contact VM server.");
+                return NULL;
+            } else if (strlen(settings->vm_id) == 0) {
+                guac_client_abort(client, GUAC_PROTOCOL_STATUS_CLIENT_BAD_REQUEST,
+                    "Must specify VM managed object ID.");
+                return NULL;
+            } else if (settings->hostname == NULL) {
+                guac_client_abort(client, GUAC_PROTOCOL_STATUS_CLIENT_BAD_REQUEST,
+                    "Must specify hostname of VM server.");
+                return NULL;
+            } else if (settings->username == NULL || settings->password == NULL) {
+                // TODO: prompt user for username + password or just password
+
+            }
+
+            char *alloc_session = vm_console_get_session(client, settings, curl, vm_server_version);
+            if (!alloc_session) {
+                guac_client_abort(client, GUAC_PROTOCOL_STATUS_UPSTREAM_ERROR,
+                    "Failure getting session from VM server.");
+                curl_easy_cleanup(curl);
+                return NULL;
+            }
+            guac_client_log(client, GUAC_LOG_DEBUG,
+                "vm_console_get_session() ret=%s", alloc_session);
+            /*
+            * TODO: save the session string for future re-use, mapping VM Server host:port
+            * to the session strings.  Lookup + check validity to re-use, or generate a
+            * new session. The current code consumes a session for each connection.
+            */
+
+            char *alloc_vm_server_url = vm_console_get_ticket(client, settings, curl, vm_server_version, alloc_session);
+            free(alloc_session);
+            if (alloc_vm_server_url == NULL) {
+                curl_easy_cleanup(curl);
+                return NULL;
+            }
+            vnc_client->vm_server_url = alloc_vm_server_url;  // for later use and cleanup
+
+            curl_easy_cleanup(curl);
+        }
+
+        guac_client_log(client, GUAC_LOG_DEBUG,
+            "vm_console_ticket_url(): %s", vnc_client->vm_server_url);
+    }
+#endif
+
     /* If Wake-on-LAN is enabled, attempt to wake. */
     if (settings->wol_send_packet) {
         guac_client_log(client, GUAC_LOG_DEBUG, "Sending Wake-on-LAN packet, "
@@ -315,12 +437,19 @@ void* guac_vnc_client_thread(void* data) {
 
     }
 
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+    const char *msg1 = "rfb_client unable to proxy connect through ws_thread to VNC server after %d retries.";
+    const char *msg2 = "rfb_client proxy connnected to VNC server";
+#else
+    const char *msg1 = "rfb_client unable to connect to VNC server after %d retries.";
+    const char *msg2 = "rfb_client connnected to VNC server";
+#endif
     /* If the final connect attempt fails, return error */
     if (!rfb_client) {
-        guac_client_abort(client, GUAC_PROTOCOL_STATUS_UPSTREAM_NOT_FOUND,
-                "Unable to connect to VNC server.");
+        guac_client_abort(client, GUAC_PROTOCOL_STATUS_UPSTREAM_NOT_FOUND, msg1, settings->retries);
         return NULL;
     }
+    guac_client_log(client, GUAC_LOG_DEBUG, msg2);
 
 #ifdef ENABLE_PULSE
     /* If audio is enabled, start streaming via PulseAudio */

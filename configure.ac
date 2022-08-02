@@ -1123,6 +1123,60 @@ AM_CONDITIONAL([ENABLE_KUBERNETES], [test "x${enable_kubernetes}"  = "xyes" \
                                        -a "x${have_terminal}"      = "xyes"])
 
 #
+# Support for VNC over websockets for VM console access (e.g., VMware)
+# using authentication from that API
+#
+VNCVMCONSOLE_LIBS=
+have_libcurl=no
+AC_ARG_WITH([vnc_to_vm_console],
+            [AS_HELP_STRING([--with-vnc-to-vm-console],
+                            [support VM consoles using the VMware automation API @<:@default=no@:>@])],
+            [],
+            [vnc_to_vm_console=no])
+
+if test "x$with_vnc_to_vm_console" != "xno"
+then
+    AC_DEFINE([ENABLE_VNC_TO_VM_CONSOLE],,
+                  [Whether support for VNC consoles to VMs using VMware automation API is enabled.])
+
+    # defined in m4/libcurl.m4
+    # v7.62.0+ has the CURLU API
+    LIBCURL_CHECK_CONFIG([yes],[7.62.0],
+    [
+        have_libcurl=yes
+        VNCVMCONSOLE_LIBS="$VNCVMCONSOLE_LIBS -lcurl"
+    ],
+    [
+        have_libcurl=no
+        AC_MSG_ERROR([
+        --------------------------------------------
+        No libcurl found.  Both the binary .so
+        library (included with the curl executable)
+        and the libcurl-*-dev package is needed to
+        build.
+        --------------------------------------------])
+    ])
+
+    AC_CHECK_LIB([cjson], [cJSON_Parse],
+    [
+        have_libcjson=yes
+        VNCVMCONSOLE_LIBS="$VNCVMCONSOLE_LIBS -lcjson"
+    ],
+    [
+        have_libcjson=no
+        AC_MSG_ERROR([
+        --------------------------------------------
+        No libcjson found.  This is required for
+        vnc-to-vm-console.
+        --------------------------------------------])
+    ])
+fi
+AC_SUBST(VNCVMCONSOLE_LIBS)
+AM_CONDITIONAL([ENABLE_VM_CONSOLE], [test "x${have_libcurl}"     = "xyes" \
+                                     -a "x${have_libcjson}"      = "xyes" \
+                                     -a "x${have_libwebsockets}" = "xyes"])
+
+#
 # guacd
 #
 
@@ -1252,6 +1306,8 @@ $PACKAGE_NAME version $PACKAGE_VERSION
      libVNCServer ........ ${have_libvncserver}
      libvorbis ........... ${have_vorbis}
      libpulse ............ ${have_pulse}
+     libcurl ............. ${have_libcurl}
+     libcjson ............ ${have_libcjson}
      libwebsockets ....... ${have_libwebsockets}
      libwebp ............. ${have_webp}
      wsock32 ............. ${have_winsock}
