@@ -22,6 +22,7 @@
 
 #include "config.h"
 
+#include <guacamole/client.h>
 #include <rfb/rfbclient.h>
 #include <rfb/rfbproto.h>
 
@@ -56,6 +57,21 @@ char* guac_vnc_get_password(rfbClient* client);
  *     The rfbCredential object that contains the required credentials.
  */
 rfbCredential* guac_vnc_get_credentials(rfbClient* client, int credentialType);
+#endif
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+/**
+ * Function to obtain the VM Server credentials from settings, or by prompting
+ * the user if they are not provided.  This is not a callback, rather it's
+ * called directly during connection setup.
+ * 
+ * @param gc
+ *     The guac client for the vnc connection.
+ * 
+ * @return
+ *     int == 0 success
+ */
+int guac_vnc_vm_server_get_credentials(guac_client* gc);
 #endif
 
 #endif

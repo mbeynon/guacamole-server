@@ -358,9 +358,13 @@ void* guac_vnc_client_thread(void* data) {
                 guac_client_abort(client, GUAC_PROTOCOL_STATUS_CLIENT_BAD_REQUEST,
                     "Must specify hostname of VM server.");
                 return NULL;
-            } else if (settings->username == NULL || settings->password == NULL) {
-                // TODO: prompt user for username + password or just password
+            }
 
+            // update settings->username and settings->password if needed
+            if (guac_vnc_vm_server_get_credentials(client) != 0) {
+                guac_client_abort(client, GUAC_PROTOCOL_STATUS_CLIENT_UNAUTHORIZED,
+                    "No credentials specified and cannot request them from the client, abort.");
+                return NULL;
             }
 
             char *alloc_session = vm_console_get_session(client, settings, curl, vm_server_version);

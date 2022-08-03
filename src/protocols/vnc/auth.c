@@ -119,3 +119,58 @@ rfbCredential* guac_vnc_get_credentials(rfbClient* client, int credentialType) {
     
 }
 #endif
+
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+int guac_vnc_vm_server_get_credentials(guac_client* gc) {
+    guac_vnc_client* vnc_client = (guac_vnc_client*) gc->data;
+    guac_vnc_settings* settings = vnc_client->settings;
+
+    /* If the client supports the "required" instruction, prompt for and
+        update those. */
+    if (true ||
+        guac_client_owner_supports_required(gc)) {
+        char* params[3] = {NULL};
+        int i = 0;
+
+        /* Check if username is not provided. */
+        if (settings->username == NULL) {
+            guac_argv_register(GUAC_VNC_ARGV_USERNAME, guac_vnc_argv_callback, NULL, 0);
+            params[i] = GUAC_VNC_ARGV_USERNAME;
+            i++;
+            guac_client_log(gc, GUAC_LOG_DEBUG,
+                    "guac_vnc_vm_server_get_credentials(): need username");
+        }
+
+        /* Check if password is not provided. */
+        if (settings->password == NULL) {
+            guac_argv_register(GUAC_VNC_ARGV_PASSWORD, guac_vnc_argv_callback, NULL, 0);
+            params[i] = GUAC_VNC_ARGV_PASSWORD;
+            i++;
+            guac_client_log(gc, GUAC_LOG_DEBUG,
+                    "guac_vnc_vm_server_get_credentials(): need password");
+        }
+
+        params[i] = NULL;
+
+        /* If we have empty parameters, request them and await response. */
+        if (i > 0) {
+            guac_client_log(gc, GUAC_LOG_DEBUG,
+                    "guac_vnc_vm_server_get_credentials(): request parms");
+            if (guac_client_owner_send_required(gc, (const char**) params) != 0) {
+                guac_client_log(gc, GUAC_LOG_DEBUG,
+                        "guac_vnc_vm_server_get_credentials(): failed guac_client_owner_send_required() call");
+            }
+            guac_client_log(gc, GUAC_LOG_DEBUG,
+                    "guac_vnc_vm_server_get_credentials(): await");
+            guac_argv_await((const char**) params);
+            guac_client_log(gc, GUAC_LOG_DEBUG,
+                    "guac_vnc_vm_server_get_credentials(): done, got username=\"%s\" password=\"%s\"", settings->username, settings->password);
+        }
+
+    } else if (settings->username == NULL || settings->password == NULL) {
+        return 1;  // need to prompt for creds, but cannot
+    }
+
+    return 0;
+}
+#endif
