@@ -329,16 +329,16 @@ void* guac_vnc_client_thread(void* data) {
 
 #ifdef ENABLE_VNC_TO_VM_CONSOLE
 
-    /*
-     * v1 = works in vsphere automation API v6.5 to v7.0U2-deprecated
-     * v2 = works in vsphere automation API v7.0U3 or later
-     */
-    int vm_server_version = 1;
-    if (strcmp(settings->vm_api_version, "v2") == 0) {
-        vm_server_version = 2;
-    }
-    
     if (settings->vm_console) {
+        /*
+        * v1 = works in vsphere automation API v6.5 to v7.0U2-deprecated
+        * v2 = works in vsphere automation API v7.0U3 or later
+        */
+        int vm_server_version = 1;
+        if (strcmp(settings->vm_api_version, "v2") == 0) {
+            vm_server_version = 2;
+        }
+    
         if (strlen(settings->vm_server_console_url) > 0) {
 
             /* just use what was passed in, skipping all the REST calls the the VM server to get a ticket */
