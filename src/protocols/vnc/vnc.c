@@ -32,6 +32,7 @@
 #include "vnc.h"
 
 #ifdef ENABLE_VNC_TO_VM_CONSOLE
+#include "auth.h"
 #include "vmconsole.h"
 #endif
 

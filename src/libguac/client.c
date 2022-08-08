@@ -176,6 +176,9 @@ guac_client* guac_client_alloc() {
 
     pthread_rwlock_init(&(client->__users_lock), &lock_attributes);
 
+    pthread_mutex_init(&(client->__owner_started_lock), NULL);
+    pthread_cond_init(&(client->__owner_started_cv), NULL);
+
     /* Set up socket to broadcast to all users */
     client->socket = guac_socket_broadcast(client);
 
@@ -216,6 +219,8 @@ void guac_client_free(guac_client* client) {
     }
 
     pthread_rwlock_destroy(&(client->__users_lock));
+    pthread_mutex_destroy(&(client->__owner_started_lock));
+    pthread_cond_destroy(&(client->__owner_started_cv));
     free(client->connection_id);
     free(client);
 }
@@ -409,6 +414,33 @@ void* guac_client_for_user(guac_client* client, guac_user* user,
 
     /* Return value from callback */
     return retval;
+
+}
+
+/**
+ * Called from a non-user thread to wait until the owner user is fully started,
+ * and client->__owner is set (not NULL) and user->info.protocol_version is set
+ * (not 0). This will block the calling thread, so don't call from an early user
+ * callback that would prevent the initialization and protocol handling.  Only
+ * call from a new protocol thread if early, or call from anywhere if the user
+ * is known to be fully initialized.
+ *
+ * @param client The client whose owner should be checked.
+ */
+static void __guac_client_wait_for_user_started(guac_client* client) {
+
+    pthread_mutex_lock(&(client->__owner_started_lock));
+
+    while (client->__owner == NULL || client->__owner->info.protocol_version == 0) {
+        guac_client_log(client, GUAC_LOG_DEBUG, "__guac_client_wait_for_user_started(): "
+                "__owner or protocol_version is not set, so wait");
+
+        pthread_cond_wait(&(client->__owner_started_cv), &(client->__owner_started_lock));
+    }
+    guac_client_log(client, GUAC_LOG_DEBUG, "__guac_client_wait_for_user_started(): "
+            "__owner is set, stop waiting");
+
+    pthread_mutex_unlock(&(client->__owner_started_lock));
 
 }
 
@@ -694,13 +726,16 @@ static void* __webp_support_callback(guac_user* user, void* data) {
  *     is cast as a void*.
  */
 static void* guac_owner_supports_required_callback(guac_user* user, void* data) {
-    
+
     return (void*) ((intptr_t) guac_user_supports_required(user));
     
 }
 
 int guac_client_owner_supports_required(guac_client* client) {
-    
+
+    /* ensure client->__owner and user->info.protocol_version are set */
+    __guac_client_wait_for_user_started(client);    
+
     return (int) ((intptr_t) guac_client_for_owner(client, guac_owner_supports_required_callback, NULL));
     
 }

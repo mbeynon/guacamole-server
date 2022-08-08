@@ -22,7 +22,10 @@
 
 #include "config.h"
 
-#include <guacamole/client.h>
+#ifdef ENABLE_VNC_TO_VM_CONSOLE
+#include "client.h"
+#endif
+
 #include <rfb/rfbclient.h>
 #include <rfb/rfbproto.h>
 

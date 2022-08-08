@@ -127,8 +127,7 @@ int guac_vnc_vm_server_get_credentials(guac_client* gc) {
 
     /* If the client supports the "required" instruction, prompt for and
         update those. */
-    if (true ||
-        guac_client_owner_supports_required(gc)) {
+    if (guac_client_owner_supports_required(gc)) {
         char* params[3] = {NULL};
         int i = 0;
 

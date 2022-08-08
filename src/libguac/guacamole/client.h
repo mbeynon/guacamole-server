@@ -178,6 +178,17 @@ struct guac_client {
     guac_user* __owner;
 
     /**
+     * Lock which is acquired to signal user connection is fully started.
+     */
+    pthread_mutex_t __owner_started_lock;
+
+    /**
+     * CV to signal user connection is fully started.  The __owner is known and
+     * the guac protocol version has been recorded.
+     */
+    pthread_cond_t  __owner_started_cv;
+
+    /**
      * The number of currently-connected users. This value may include inactive
      * users if cleanup of those users has not yet finished.
      */
